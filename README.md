@@ -1,1 +1,3 @@
 这份代码是复现的在CROHME上跑的一份代码，数据和基础模型已经准备好了，解压之后，在python3下安装好环境，直接用sbatch crohme.slurm就可以运行，weight_noise代码主要在train_netease_noise.py
+
+需要参考原作者版本可移步https://github.com/JianshuZhang/TAP
