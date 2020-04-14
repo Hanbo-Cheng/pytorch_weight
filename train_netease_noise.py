@@ -8,6 +8,7 @@ from torch import optim, nn
 from utils import dataIterator, load_dict, prepare_data, gen_sample, weight_init
 from tap_nmt import tap_dataIterator, tap_dataIterator_valid, tap_prepare_data
 from encoder_decoder import Encoder_Decoder
+from weight_noise import weight_noise_class
 
 print("GPU可用否")
 print(torch.cuda.is_available())
@@ -146,163 +147,16 @@ else:
         TAP_model = nn.DataParallel(TAP_model, device_ids=[0, 1])
 TAP_model.cuda()
 
-tparams_p_u = []
-tparams_p_ls2 = []
-running_grads2_miu = []
-running_up2_miu = []
-running_grads2_sigma = []
-running_up2_sigma = []
 # print model's parameters
 model_params = TAP_model.named_parameters()
 
 for k, v in model_params:
     print(k)
 
-len_model_params = 0
-for i, param in enumerate(TAP_model.parameters()):
-    if param.grad != None:
-        running_grads2_miu.append(torch.zeros_like(param.grad.data))
-        running_grads2_sigma.append(torch.zeros_like(param.grad.data))
-    else:
-        running_grads2_miu.append(None)
-        running_grads2_sigma.append(None)
-    running_up2_sigma.append(torch.zeros_like(param.data))
-    running_up2_miu.append(torch.zeros_like(param.data))
-    len_model_params += 1
+weight_noise = weight_noise_class(TAP_model)
 
-print("参数数量：", len_model_params)
 # loss function
 criterion = torch.nn.CrossEntropyLoss(reduce=False)
-
-
-def getTparams():
-    with torch.no_grad():
-        for i, param in enumerate(TAP_model.parameters()):
-            init_sigma = 1.0e-12
-            log_sigma_scale = 2048.0
-            p_u = torch.ones_like(param.data) * param.data
-            p_ls2 = torch.zeros_like(param.data) + np.log(init_sigma) * 2. / log_sigma_scale  # log_(sigma^2)
-            tparams_p_u.append(p_u)
-            tparams_p_ls2.append(p_ls2)
-
-
-getTparams()
-
-
-# 首先该函数将tparams_p_u与tparams_p_ls2使用当前weight填好，并将tparams_p_ls2应用于当前weight
-# 其次产生Beta与prior_s2供后续new_grads_miu与new_grads_sigma使用
-def f_apply_noise_to_weight():
-    with torch.no_grad():
-        log_sigma_scale = 2048.0
-        #  compute the prior mean and variation
-        temp_sum = 0.0
-        temp_param_count = 0.0
-
-        for i, param in enumerate(TAP_model.parameters()):
-            temp_sum = temp_sum + tparams_p_u[i].sum()
-            temp_param_count = temp_param_count + np.prod(np.array(list(tparams_p_u[i].shape)).astype("float32"))
-
-            # param.data += torch.normal(0, 1, param.data.shape).cuda() * torch.exp(
-            #     tparams_p_ls2[i] * log_sigma_scale) ** 0.5
-            # add noise to weight
-        prior_u = float(temp_sum) / temp_param_count
-        temp_sum = 0.0
-        for i, p_u in enumerate(tparams_p_u):
-            p_s2 = torch.exp(tparams_p_ls2[i] * log_sigma_scale)  # sigma^2
-            temp_sum = temp_sum + (p_s2).sum() + (((p_u - prior_u) ** 2).sum())
-
-        prior_s2 = float(temp_sum) / temp_param_count
-        return prior_u, prior_s2
-
-
-def f_copy_weight():
-    with torch.no_grad():
-        # restore weight
-        for i, param in enumerate(TAP_model.parameters()):
-            param.data = tparams_p_u[i]
-
-
-def f_update_miu(tparams_miu, grads_miu):
-    with torch.no_grad():
-        for i, param in enumerate(TAP_model.parameters()):
-            if grads_miu[i] != None:
-                if running_grads2_miu[i] == None:
-                    temp_running_grads2_miu = 0
-                else:
-                    temp_running_grads2_miu = running_grads2_miu[i]
-                running_grads2_miu[i] = temp_running_grads2_miu * 0.95 + 0.05 * grads_miu[i] ** 2
-                temp_updir_miu = - (running_up2_miu[i] + my_eps) ** 0.5 / (running_grads2_miu[i] + my_eps) ** 0.5 * \
-                                 grads_miu[i]
-                running_up2_miu[i] = running_up2_miu[i] * 0.95 + 0.05 * temp_updir_miu ** 2
-                # print(temp_updir_miu.shape)
-                assert temp_updir_miu.shape == tparams_miu[i].shape
-                # print(temp_updir_miu)
-                # print(tparams_miu[i])
-                tparams_miu[i] += temp_updir_miu
-                del temp_updir_miu
-        # print(i)
-        assert i == len_model_params - 1
-        del grads_miu[i]
-        torch.cuda.empty_cache()
-
-
-def f_update_sigma(tparams_sigma, grads_sigma):
-    with torch.no_grad():
-        for i, param in enumerate(TAP_model.parameters()):
-            if grads_sigma[i] != None:
-                if running_grads2_sigma[i] == None:
-                    temp_running_grads2_sigma = 0
-                else:
-                    temp_running_grads2_sigma = running_grads2_sigma[i]
-                running_grads2_sigma[i] = temp_running_grads2_sigma * 0.95 + 0.05 * grads_sigma[i] ** 2
-                temp_updir_sigma = - (running_up2_sigma[i] + my_eps) ** 0.5 / (running_grads2_sigma[i] + my_eps) ** 0.5 * \
-                                   grads_sigma[i]
-                running_up2_sigma[i] = running_up2_sigma[i] * 0.95 + 0.05 * temp_updir_sigma ** 2
-                # print(temp_updir_miu.shape)
-                assert temp_updir_sigma.shape == tparams_sigma[i].shape
-                tparams_sigma[i] += temp_updir_sigma
-                del temp_updir_sigma
-        # print(i)
-        assert i == len_model_params - 1
-        del grads_sigma[i]
-        torch.cuda.empty_cache()
-
-
-# def f_update(tparams, grads, optimizer):
-#     for i, param in enumerate(TAP_model.parameters()):
-#         param.data = tparams[i]
-#         if grads[i] != None:
-#             param.grad.data = grads[i]
-#     if clip_c > 0.:
-#         torch.nn.utils.clip_grad_norm_(TAP_model.parameters(), clip_c)
-#
-#     for i, param in enumerate(TAP_model.parameters()):
-#         tparams[i] = param.data
-
-
-def produceGrad(prior_u, prior_s2, num_examples):
-    with torch.no_grad():
-        log_sigma_scale = 2048.0
-        model_cost_coefficient = params['model_cost_coeff']
-        new_grads_miu = []
-        new_grads_sigma = []
-        for p_u, p_ls2, param in zip(tparams_p_u, tparams_p_ls2, TAP_model.parameters()):
-            if param.grad != None:
-                p_s2 = torch.exp(p_ls2 * log_sigma_scale)  # sigma^2
-                p_u_grad = (model_cost_coefficient * (p_u - prior_u) /
-                            (num_examples * prior_s2) + param.grad.data)
-                a = np.float32(model_cost_coefficient *
-                               0.5 / num_examples * log_sigma_scale) * (p_s2 / prior_s2 - 1.0)
-                b = (0.5 * log_sigma_scale) * p_s2 * (param.grad.data ** 2)
-                p_ls2_grad = (a + b)
-                # print("p_ls2_grad", param.grad.data)
-            else:
-                p_u_grad = None
-                p_ls2_grad = None
-            new_grads_miu.append(p_u_grad)
-            new_grads_sigma.append(p_ls2_grad)
-        return new_grads_miu, new_grads_sigma
-
 
 print('Optimization')
 
@@ -332,7 +186,7 @@ for eidx in range(max_epochs):
         tap_a_mask = torch.from_numpy(tap_a_mask).cuda()
 
         # 一,tparams_p_u,tparams_p_ls2只因被初始化一次，但prior_u,prior_s2,Beta需要被重新计算
-        prior_u, prior_s2 = f_apply_noise_to_weight()
+        prior_u, prior_s2 = weight_noise_class.f_apply_noise_to_weight(TAP_model)
         # forward
         tap_ctx, cost_alphas = TAP_model(params, tap_x, tap_x_mask, tap_a, tap_a_mask, tap_y,
                                          tap_y_mask)
@@ -359,7 +213,7 @@ for eidx in range(max_epochs):
 
         loss.backward()
         # 二
-        new_grads_miu, new_grads_sigma = produceGrad(prior_u, prior_s2, 2 * 8835)
+        new_grads_miu, new_grads_sigma = weight_noise.produceGrad(TAP_model, prior_u, prior_s2, 2 * 8835)
 
         # apply gradient clipping here
         # if clip_c > 0.:
@@ -376,20 +230,10 @@ for eidx in range(max_epochs):
 
         # update
 
-        # for nm in TAP_model.parameters():
-        #     if nm != None:
-        #         print("before", nm.data)
-        #         break
-        f_update_miu(tparams_p_u, new_grads_miu)
+        weight_noise.f_update_miu(TAP_model, new_grads_miu)
+        weight_noise.f_update_sigma(TAP_model, new_grads_sigma)
 
-        f_update_sigma(tparams_p_ls2, new_grads_sigma)
-
-        # for nm in TAP_model.parameters():
-        #     if nm != None:
-        #         print("after", nm.data)
-        #         break
-
-        f_copy_weight()
+        weight_noise.f_copy_weight(TAP_model)
 
         ud = time.time() - ud_start
         ud_s += ud
