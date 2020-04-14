@@ -27,6 +27,7 @@ weight_noise = weight_noise_class(TAP_model)
 ```
 
 + f_apply_noise_to_weight，在前向反馈前使用，为原weight增加噪声，example:
+
 ```
 for tap_x, tap_y, tap_a in tap_train:
     TAP_model.train()
@@ -50,6 +51,7 @@ new_grads_miu, new_grads_sigma = weight_noise.produceGrad(TAP_model, prior_u, pr
 ```
 
 + f_update_miu & f_update_sigma，紧接produceGrad后调用，之所以分开写是因为在调用之前还可对新梯度做一些操作(例如梯度裁剪)，example:
+
 ```
 new_grads_miu, new_grads_sigma = weight_noise.produceGrad(TAP_model, prior_u, prior_s2, 2 * 8835)
 
@@ -59,6 +61,7 @@ weight_noise.f_update_sigma(TAP_model, new_grads_sigma)
 
 
 + f_copy_weight，紧接f_update_miu & f_update_sigma后调用，将梯度更新到原梯度，example:
+
 ```
 weight_noise.f_update_miu(TAP_model, new_grads_miu)
 weight_noise.f_update_sigma(TAP_model, new_grads_sigma)
