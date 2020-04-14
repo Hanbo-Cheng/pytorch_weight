@@ -133,7 +133,7 @@ class weight_noise_class:
                 new_grads_sigma.append(p_ls2_grad)
             return new_grads_miu, new_grads_sigma
 
-    def f_update_miu(self, model, grads_miu, my_eps=-1):
+    def f_update_miu(self, model, grads_miu, my_eps=1e-8):
         with torch.no_grad():
             for i, param in enumerate(model.parameters()):
                 if grads_miu[i] != None:
@@ -153,7 +153,7 @@ class weight_noise_class:
             del grads_miu[i]
             torch.cuda.empty_cache()
 
-    def f_update_sigma(self, model, grads_sigma, my_eps):
+    def f_update_sigma(self, model, grads_sigma, my_eps=1e-8):
         with torch.no_grad():
             for i, param in enumerate(model.parameters()):
                 if grads_sigma[i] != None:
