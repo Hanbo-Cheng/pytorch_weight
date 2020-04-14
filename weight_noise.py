@@ -146,8 +146,8 @@ class weight_noise_class:
                             self.running_grads2_miu[i] + my_eps) ** 0.5 * \
                                      grads_miu[i]
                     self.running_up2_miu[i] = self.running_up2_miu[i] * 0.95 + 0.05 * temp_updir_miu ** 2
-                    assert temp_updir_miu.shape == self.tparams_miu[i].shape
-                    self.tparams_miu[i] += temp_updir_miu
+                    assert temp_updir_miu.shape == self.tparams_p_u[i].shape
+                    self.tparams_p_u[i] += temp_updir_miu
                     del temp_updir_miu
             # print(i)
             del grads_miu[i]
@@ -167,8 +167,8 @@ class weight_noise_class:
                                        grads_sigma[i]
                     self.running_up2_sigma[i] = self.running_up2_sigma[i] * 0.95 + 0.05 * temp_updir_sigma ** 2
 
-                    assert temp_updir_sigma.shape == self.tparams_sigma[i].shape
-                    self.tparams_sigma[i] += temp_updir_sigma
+                    assert temp_updir_sigma.shape == self.tparams_p_ls2[i].shape
+                    self.tparams_p_ls2[i] += temp_updir_sigma
                     del temp_updir_sigma
 
             del grads_sigma[i]
