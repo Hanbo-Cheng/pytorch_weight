@@ -186,7 +186,7 @@ for eidx in range(max_epochs):
         tap_a_mask = torch.from_numpy(tap_a_mask).cuda()
 
         # 一,tparams_p_u,tparams_p_ls2只因被初始化一次，但prior_u,prior_s2,Beta需要被重新计算
-        prior_u, prior_s2 = weight_noise_class.f_apply_noise_to_weight(TAP_model)
+        prior_u, prior_s2 = weight_noise.f_apply_noise_to_weight(TAP_model)
         # forward
         tap_ctx, cost_alphas = TAP_model(params, tap_x, tap_x_mask, tap_a, tap_a_mask, tap_y,
                                          tap_y_mask)
