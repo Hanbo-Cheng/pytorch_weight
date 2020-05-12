@@ -56,6 +56,9 @@ class Encoder_Decoder(nn.Module):
         # output(seq_len, batch, hidden_size * num_directions)
         # hn(num_layers * num_directions, batch, hidden_size)
         # cn(num_layers * num_directions, batch, hidden_size)
+        self.tap_encoder_0_1.flatten_parameters()
+        self.tap_encoder_2.flatten_parameters()
+        self.tap_encoder_3.flatten_parameters()
         h, (hn, cn) = self.tap_encoder_0_1(tap_x)
 
         h, (hn, cn) = self.tap_encoder_2(h)
@@ -115,6 +118,9 @@ class Encoder_Decoder(nn.Module):
 
     # decoding: encoder part
     def tap_f_init(self, params, tap_x):
+        self.tap_encoder_0_1.flatten_parameters()
+        self.tap_encoder_2.flatten_parameters()
+        self.tap_encoder_3.flatten_parameters()
         h, (hn, cn) = self.tap_encoder_0_1(tap_x)
 
         h, (hn, cn) = self.tap_encoder_2(h)
